@@ -17,7 +17,7 @@ export class MemForgeFs implements IForgeFs {
             throw new Error('Memory fs is disposed')
 
         const targetPath = this.forge.paths.targetPath(path)
-        await this._tempFs.ensureDirectory(targetPath)
+        this._tempFs.ensureDirectory(targetPath)
     }
 
     async writeFile(path: string,
@@ -159,7 +159,7 @@ export class MemForgeFs implements IForgeFs {
             throw new Error('Memory fs is disposed')
 
         const targetPath = this.forge.paths.targetPath(path)
-        return await this._tempFs.createReadStream(targetPath)
+        return this._tempFs.createReadStream(targetPath)
     }
 
     async createReadStreamTarget(path: string): Promise<fs.ReadStream> {
@@ -167,7 +167,7 @@ export class MemForgeFs implements IForgeFs {
             throw new Error('Memory fs is disposed')
 
         const targetPath = this.forge.paths.targetPath(path)
-        return await this._tempFs.createReadStream(targetPath)
+        return this._tempFs.createReadStream(targetPath)
     }
 
     async* getDirs(sort: boolean = false) {
@@ -199,16 +199,6 @@ export class MemForgeFs implements IForgeFs {
             sort)
     }
 
-    async getFileRealPath(path: string) {
-        if (this.disposed)
-            throw new Error('Memory fs is disposed')
-
-        const targetPath = this.forge.paths.targetPath(path)
-        const temp = await this._tempFs.getTempPath(targetPath, 'file')
-
-        return temp?.tempPath
-    }
-
     async existsSrc(path: string) {
         if (this.disposed)
             throw new Error('Memory fs is disposed')
@@ -221,7 +211,7 @@ export class MemForgeFs implements IForgeFs {
             throw new Error('Memory fs is disposed')
 
         const targetPath = this.forge.paths.targetPath(path)
-        return await this._tempFs.exists(targetPath)
+        return this._tempFs.exists(targetPath)
     }
 
     async approveFile(path: string): Promise<void> {
@@ -229,7 +219,7 @@ export class MemForgeFs implements IForgeFs {
             throw new Error('Memory fs is disposed')
 
         const targetPath = this.forge.paths.targetPath(path)
-        await this._tempFs.approve(targetPath)
+        this._tempFs.approve(targetPath)
     }
 
     async commit() {

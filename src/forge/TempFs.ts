@@ -1,11 +1,10 @@
 import fs from 'fs-extra';
 import { dirname, join, resolve } from "path";
-import { Database, open } from 'sqlite';
-import sqlite3 from 'sqlite3';
 import { GlobHelper } from '../common/GlobHelper';
 import { PathHelper } from "../common/PathHelper";
 import { IFileInjector } from "../Injectors/LiquidInjector";
 import { FileExistsAction, TempPathType, WriteOptions } from "../types";
+import Database from 'better-sqlite3';
 
 export interface TempPath {
     targetPath: string
@@ -16,23 +15,20 @@ export interface TempPath {
 }
 
 export class TempFs {
-    private db: Database | undefined = undefined
+    private db: Database.Database | undefined = undefined
     private dbPath: string
 
     constructor(private tempDir: string, private injector: IFileInjector) {
         this.dbPath = join(this.tempDir, 'index.db')
     }
 
-    async getConnection() {
+    private getConnection() {
         if (this.db)
             return this.db
 
-        this.db = await open({
-            driver: sqlite3.Database,
-            filename: this.dbPath
-        })
+        this.db = new Database(this.dbPath)
 
-        await this.db.exec(`
+        this.db.exec(`
             CREATE TABLE IF NOT EXISTS temp_index (
                 target_path TEXT NOT NULL,
                 type TEXT NOT NULL,
@@ -50,12 +46,12 @@ export class TempFs {
         return this.db
     }
 
-    async getTempPath(path: string, type: TempPathType) {
+    getTempPath(path: string, type: TempPathType) {
         path = resolve(path)
 
-        const con = await this.getConnection()
+        const db = this.getConnection()
 
-        return await con.get<TempPath>(`
+        const prep = db.prepare<any, TempPath>(`
             SELECT 
                 target_path targetPath,
                 temp_path tempPath,
@@ -63,34 +59,37 @@ export class TempFs {
                 approved approved
             FROM temp_index
             WHERE 1=1
-                AND target_path = :target
-                AND type = :type`,
-            {
-                ':target': path,
-                ':type': type
-            })
+                AND target_path = @target
+                AND type = @type`)
+
+        return prep.get({
+            target: path,
+            type: type
+        })
     }
 
-    async* getTempPaths(filters?: Partial<TempPath>, sort: boolean = false) {
+    * getTempPaths(filters?: Partial<TempPath>, sort: boolean = false) {
         filters ??= {}
 
         if (filters?.targetPath) {
             filters.targetPath = resolve(filters.targetPath)
         }
 
-        const con = await this.getConnection()
+        const clauses = []
 
-        const pathFilter = filters?.targetPath ?
-            'AND target_path = :target' :
-            ''
+        const con = this.getConnection()
 
-        const typeFilter = filters?.type ?
-            'AND type = :type' :
-            ''
+        if (filters.targetPath) {
+            clauses.push('target_path = @target')
+        }
 
-        const approvedFilter = filters?.approved ?
-            'AND approved = :approved' :
-            ''
+        if (filters.type) {
+            clauses.push('type = @type')
+        }
+
+        if (filters.approved) {
+            clauses.push('approved = @approved')
+        }
 
         const orderBy = sort ?
             'ORDER BY LENGTH(target_path) ASC, target_path ASC' :
@@ -100,27 +99,25 @@ export class TempFs {
         const pageSize = 100
 
         while (true) {
-            const rows = await con.all<TempPath[]>(`
+            const prep = con.prepare<any, TempPath>(`
                 SELECT 
                     target_path targetPath,
                     temp_path tempPath,
                     if_file_exists ifFileExists,
                     approved approved
                 FROM temp_index
-                WHERE 1=1
-                    ${pathFilter}
-                    ${typeFilter}
-                    ${approvedFilter}
+                WHERE ${clauses.join('\n AND ')}
                 ${orderBy}
-                LIMIT :limit OFFSET :offset
-                `,
-                {
-                    ':target': filters?.targetPath,
-                    ':type': filters?.type,
-                    ':approved': filters?.approved,
-                    ':limit': pageSize,
-                    ':offset': offset,
-                })
+                LIMIT @limit OFFSET @offset
+                `)
+
+            const rows = prep.all({
+                'target': filters?.targetPath,
+                'type': filters?.type,
+                'approved': filters?.approved ? 1 : 0,
+                'limit': pageSize,
+                'offset': offset,
+            })
 
             if (rows.length == 0) {
                 return
@@ -134,14 +131,15 @@ export class TempFs {
         }
     }
 
-    async approve(path: string) {
-        const con = await this.getConnection()
-        await con.run(
-            `UPDATE temp_index SET approved = 1 WHERE target_path = :path`,
-            {
-                ':path': path
-            }
+    approve(path: string) {
+        const con = this.getConnection()
+        const prep = con.prepare(
+            `UPDATE temp_index SET approved = 1 WHERE target_path = @path`
         )
+
+        prep.run({
+            'path': path
+        })
     }
 
     private async setTempFile(tempFile: TempPath) {
@@ -149,42 +147,45 @@ export class TempFs {
         tempFile.tempPath = resolve(tempFile.tempPath!)
         tempFile.type = 'file'
 
-        const current = await this.getTempPath(tempFile.targetPath, 'file')
+        const current = this.getTempPath(tempFile.targetPath, 'file')
         if (current) {
             await fs.rm(current.tempPath!)
         }
 
-        const con = await this.getConnection()
-        await con.run(`
+        const con = this.getConnection()
+        const prep = con.prepare(`
             INSERT OR REPLACE INTO temp_index
                 (target_path, type, temp_path, if_file_exists)
             VALUES
-                (:target, :type, :temp, :file_exists)
-            `,
-            {
-                ':target': tempFile.targetPath,
-                ':type': tempFile.type,
-                ':temp': tempFile.tempPath,
-                ':file_exists': tempFile.ifFileExists
-            })
+                (@target, @type, @temp, @file_exists)
+            `
+        )
+
+        prep.run({
+            'target': tempFile.targetPath,
+            'type': tempFile.type,
+            'temp': tempFile.tempPath,
+            'file_exists': tempFile.ifFileExists
+        })
     }
 
-    private async setTempDir(tempDir: TempPath) {
+    private setTempDir(tempDir: TempPath) {
         tempDir.targetPath = resolve(tempDir.targetPath)
         tempDir.type = 'directory'
 
-        const con = await this.getConnection()
-        await con.run(`
+        const con = this.getConnection()
+        const prep = con.prepare(`
             INSERT OR REPLACE INTO temp_index
                 (target_path, type, approved)
             VALUES
-                (:target, :type, :approved)
-            `,
-            {
-                ':target': tempDir.targetPath,
-                ':type': tempDir.type,
-                ':approved': tempDir.approved
-            })
+                (@target, @type, @approved)
+            `)
+
+        prep.run({
+            'target': tempDir.targetPath,
+            'type': tempDir.type,
+            'approved': tempDir.approved ? 1 : 0
+        })
     }
 
     private async newTempPath() {
@@ -198,20 +199,20 @@ export class TempFs {
         }
     }
 
-    async ensureDirectory(path: string) {
+    ensureDirectory(path: string) {
         const temp: TempPath = {
             targetPath: path,
             approved: true
         }
 
-        await this.setTempDir(temp)
+        this.setTempDir(temp)
     }
 
     async writeFile(path: string,
         data: string | NodeJS.ArrayBufferView,
         options?: WriteOptions,
     ) {
-        await this.ensureDirectory(dirname(path))
+        this.ensureDirectory(dirname(path))
 
         const temp: TempPath = {
             tempPath: await this.newTempPath(),
@@ -229,7 +230,7 @@ export class TempFs {
             throw new Error('src is a directory')
         }
 
-        await this.ensureDirectory(dirname(dest))
+        this.ensureDirectory(dirname(dest))
 
         const temp: TempPath = {
             tempPath: await this.newTempPath(),
@@ -249,7 +250,7 @@ export class TempFs {
 
         const newPath = PathHelper.injectPath(dest, variables)
         const newDir = dirname(newPath)
-        await this.ensureDirectory(newDir)
+        this.ensureDirectory(newDir)
 
         const temp: TempPath = {
             tempPath: await this.newTempPath(),
@@ -267,17 +268,17 @@ export class TempFs {
         await fs.copyFile(src, temp.tempPath!)
     }
 
-    async exists(path: string) {
+    exists(path: string) {
         const iterator = this.getTempPaths({
             targetPath: path
         })
-        const result = await iterator.next()
+        const result = iterator.next()
 
         return !result.done
     }
 
     async readFile(path: string) {
-        const tempPath = await this.getTempPath(path, 'file')
+        const tempPath = this.getTempPath(path, 'file')
         if (!tempPath) {
             return undefined
         }
@@ -286,8 +287,8 @@ export class TempFs {
         return await fs.readFile(tempFilePath)
     }
 
-    async createReadStream(path: string, options?: BufferEncoding) {
-        const tempPath = await this.getTempPath(path, 'file')
+    createReadStream(path: string, options?: BufferEncoding) {
+        const tempPath = this.getTempPath(path, 'file')
         if (!tempPath) {
             throw new Error(`File '${path}' does not exist in the temp directory.`)
         }
@@ -305,7 +306,7 @@ export class TempFs {
     }
 
     async commit() {
-        const con = await this.getConnection()
+        const con = this.getConnection()
 
         const directories = this.getTempPaths(
             {
@@ -329,7 +330,7 @@ export class TempFs {
             await fs.rm(file.tempPath!)
         }
 
-        await con.close()
+        con.close()
         await this.clearFiles()
     }
 
