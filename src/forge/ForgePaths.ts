@@ -1,6 +1,4 @@
 import { isAbsolute, join, resolve } from "path";
-import { TempDir } from "../common/TempDir";
-import { ExecutionArgs } from "./Forge";
 
 export class ForgePaths {
     _rootDir: string = null!
@@ -10,31 +8,39 @@ export class ForgePaths {
     _tempDir: string = null!
 
     setRootDir(path: string) {
-        if (isAbsolute(path))
-            this._rootDir = path
+        if (isAbsolute(path)) {
+            this._rootDir = resolve(path)
+            return
+        }
 
-        this._rootDir = resolve(path)
+        this._rootDir = resolve(join(this._rootDir, path))
     }
 
     setTargetDir(path: string) {
-        if (isAbsolute(path))
-            this._targetDir = path
+        if (isAbsolute(path)) {
+            this._targetDir = resolve(path)
+            return
+        }
 
-        this._targetDir = resolve(path)
+        this._targetDir = resolve(join(this._targetDir, path))
     }
 
     setSourceDir(path: string) {
-        if (isAbsolute(path))
-            this._sourceDir = path
+        if (isAbsolute(path)) {
+            this._sourceDir = resolve(path)
+            return
+        }
 
-        this._sourceDir = resolve(path)
+        this._sourceDir = resolve(join(this._sourceDir, path))
     }
 
     setScriptsDir(path: string) {
-        if (isAbsolute(path))
-            this._scriptsDir = path
+        if (isAbsolute(path)) {
+            this._scriptsDir = resolve(path)
+            return
+        }
 
-        this._scriptsDir = resolve(path)
+        this._scriptsDir = resolve(join(this._scriptsDir, path))
     }
 
     rootPath(...destination: string[]) {
@@ -44,7 +50,7 @@ export class ForgePaths {
             return path
         }
 
-        return join(this._rootDir, path)
+        return resolve(join(this._rootDir, path))
     }
 
     targetPath(...destination: string[]) {
@@ -54,7 +60,8 @@ export class ForgePaths {
             return path
         }
 
-        return join(this._targetDir, path)
+
+        return resolve(join(this._targetDir, path))
     }
 
     sourcePath(...destination: string[]) {
@@ -64,7 +71,7 @@ export class ForgePaths {
             return path
         }
 
-        return join(this._sourceDir, path)
+        return resolve(join(this._sourceDir, path))
     }
 
     scriptsPath(...destination: string[]) {
@@ -74,7 +81,7 @@ export class ForgePaths {
             return path
         }
 
-        return join(this._scriptsDir, path)
+        return resolve(join(this._scriptsDir, path))
     }
 
     tempPath(...destination: string[]) {
@@ -84,7 +91,7 @@ export class ForgePaths {
             return path
         }
 
-        return join(this._tempDir, path)
+        return resolve(join(this._tempDir, path))
     }
 
     cwdPath(...destination: string[]) {
@@ -94,6 +101,6 @@ export class ForgePaths {
             return path
         }
 
-        return join(process.cwd(), path)
+        return resolve(join(process.cwd(), path))
     }
 }

@@ -36,10 +36,18 @@ export class ForgePrompts {
             this.forge.variables.getValues() :
             {}
 
-        const newAnswers = await PromptsHelper.prompt<T>(questions, {
-            ...this._options,
-            answers: answers
-        })
+        let newAnswers: prompts.Answers<T>
+
+        const opts = this.forge.program.options()
+        if (opts.disablePrompts) {
+            newAnswers = await PromptsHelper.getDefaultValues(questions, answers)
+        }
+        else {
+            newAnswers = await PromptsHelper.prompt<T>(questions, {
+                ...this._options,
+                answers: answers
+            })
+        }
 
         if (updateVariables) {
             this.forge.variables.setValues(newAnswers)
@@ -59,7 +67,10 @@ export class ForgePrompts {
         let newAnswers: any = answers
         const opts = this.forge.program.options()
 
-        if (opts.disablePromptConfirmation || this.forge.variables.get('disablePromptConfirmation')) {
+        if (opts.disablePrompts) {
+            newAnswers = await PromptsHelper.getDefaultValues(questions, answers)
+        }
+        else if (opts.disablePromptConfirmation || this.forge.variables.get('disablePromptConfirmation')) {
             newAnswers = await PromptsHelper.prompt(questions, {
                 ...this._options,
                 answers: newAnswers

@@ -16,7 +16,7 @@ export type ValidateCommands = (program: Command) => PromiseOrValue<string | tru
 
 export type ValidateOptions = (option: Option, value: any) => PromiseOrValue<string | true | undefined>
 
-export type ConfigScope = 'task' | 'project'
+export type ConfigScope = 'task' | 'forge' | 'project'
 
 export type FileExistsAction = 'ask' | 'ignore' | 'replace' | 'throw'
 

@@ -1,12 +1,12 @@
+import chalk from 'chalk';
+import { Command } from 'commander';
 import fs from 'fs-extra';
-import { dirname, join } from "path";
+import { join } from "path";
 import prompts from "prompts";
 import { lock } from "proper-lockfile";
 import { GlobHelper } from "./common/GlobHelper";
 import { Forge } from "./forge/Forge";
 import { FileHelper } from "./Helpers/FileHelper";
-import chalk from 'chalk';
-import { Command } from 'commander';
 
 export class ForgeRunner {
     lockFilePath: string
@@ -36,8 +36,6 @@ export class ForgeRunner {
         await this.end()
     }
 
-    // async prepare()
-
     async init() {
         this.forge.currentStage = 'init'
 
@@ -62,9 +60,17 @@ export class ForgeRunner {
             this.forge.program._command.error(`error: option '${option.flags}' is invalid. ${result}`)
         }
 
-        if (await this.forge.config.load()) {
-            const newDir = dirname(this.forge.config.getConfigPath()!)
+        if (await this.forge.config.configExists()) {
+            const newDir = await this.forge.config.getConfigDirectory()
             this.forge.paths.setTargetDir(newDir)
+        }
+
+        const targetDirectory =
+            this.forge.variables.get('targetDir') ??
+            await this.forge.config.get('targetDir')
+
+        if (targetDirectory && typeof targetDirectory == 'string') {
+            this.forge.paths.setTargetDir(targetDirectory)
         }
 
         await fs.ensureDir(this.forge.paths.tempPath())
@@ -160,7 +166,7 @@ export class ForgeRunner {
     async commit() {
         this.forge.currentStage = 'commit'
 
-        if (this.forge.config._options.autoSave && this.forge.config.hasPendingChanges()) {
+        if (this.forge.config._options.autoSave) {
             await this.forge.config.save()
         }
 

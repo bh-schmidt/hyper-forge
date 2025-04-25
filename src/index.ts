@@ -6,6 +6,8 @@ import { ForgeRunner } from "./ForgeRunner";
 import { IFileInjector, LiquidInjector } from "./Injectors/LiquidInjector";
 import { PromptsHelper } from "./common/PromptsHelper";
 import { GlobHelper } from "./common/GlobHelper";
+import { ConfigHandler } from "./handlers/ConfigHandler";
+import { ConfigHandlerSync } from "./handlers/ConfigHandlerSync";
 
 const tempDir = TempDir.get()
 const executionsTempDir = TempDir.get("executions")
@@ -20,6 +22,8 @@ export {
     HyperForgeData,
     PromptsHelper,
     GlobHelper,
+    ConfigHandler,
+    ConfigHandlerSync,
     tempDir,
     executionsTempDir
 }

@@ -41,8 +41,8 @@ export namespace PromptsHelper {
 
         while (pending.length > 0) {
             const question = pending.shift()!
+            const recreatedQuestion = await recreateQuestion(question, newAnswers)
             const name = getValue<string, typeof question.name>(question.name, question, newAnswers)!
-
 
             if (options.clearBetweenQuestions) {
                 console.clear()
@@ -50,23 +50,21 @@ export namespace PromptsHelper {
 
             if (options.reprintBetweenQuestions) {
                 const reprint = lodash.takeRight(finished, options.maxReprintCount)
-                reprintAnswers(reprint, answers)
+                await reprintAnswers(reprint, answers)
             }
-
-            const recreated = recreate(question, newAnswers)
 
             if (error) {
                 console.log(chalk.red(error))
             }
-            const result = await prompts<T>(recreated) as any
+            const result = await prompts<T>(recreatedQuestion) as any
 
-            if (recreated.type !== false && !(name in result)) {
+            if (recreatedQuestion.type !== false && !(name! in result)) {
                 process.exit()
             }
 
-            // prompts has a bug on windows that stops reading stdin when the question.validate is async, so to 
+            // prompts has a bug on windows that stops reading stdin when the question.validate is async, to fix the issue we manually validate and print the error 
             if (process.platform === 'win32' && question.validate) {
-                const valid = await question.validate(result[name], newAnswers, question)
+                const valid = await question.validate(result[name!], newAnswers, question)
 
                 if (valid === false) {
                     error = 'Invalid answer'
@@ -83,7 +81,7 @@ export namespace PromptsHelper {
                 error = undefined
             }
 
-            newAnswers[name] = result[name]
+            newAnswers[name!] = result[name!]
             finished.push(question)
         }
 
@@ -109,7 +107,7 @@ export namespace PromptsHelper {
             }
 
             if (options.reprintBeforeConfirmations) {
-                reprintAnswers(questions, newAnswers)
+                await reprintAnswers(questions, newAnswers)
             }
 
             const editResult = await prompts([
@@ -158,6 +156,98 @@ export namespace PromptsHelper {
         await waitForKeypress();
 
     }
+
+    export async function getDefaultValues<T extends string = string>(questions: PromptObject<T> | PromptObject<T>[], answers?: any): Promise<prompts.Answers<T>> {
+        questions = Array.isArray(questions) ? questions : [questions]
+        const values = answers ?? {}
+
+        for (const question of questions) {
+            const name = getValue<string, typeof question.name>(question.name, question, values)!
+            const initial = await getValueAsync(question.initial, question, values)
+            const type = getValue(question.type, question, values)
+
+            if (answers && answers[name]) {
+                values[name] = answers[name]
+                continue
+            }
+
+            if (type == 'text') {
+                values[name] = initial
+                continue
+            }
+
+            if (type == 'autocomplete') {
+                values[name] = initial
+                continue
+            }
+
+            if (type == 'confirm') {
+                values[name] = initial ?? false
+                continue
+            }
+
+            if (type == 'date') {
+                values[name] = initial ?? new Date()
+                continue
+            }
+
+            if (type == 'invisible') {
+                values[name] = initial
+                continue
+            }
+
+            if (type == 'list') {
+                values[name] = initial ?? []
+                continue
+            }
+
+            if (type == 'multiselect' || type == 'autocompleteMultiselect') {
+                let choices = getValue(question.choices, question, values) as prompts.Choice[] | undefined
+                if (!choices) {
+                    values[name] = []
+                    continue
+                }
+
+                const ini = choices.filter(e => e.selected).map((e, i) => e.value ?? i)
+                values[name] = ini
+                continue
+            }
+
+            if (type == 'number') {
+                values[name] = initial
+                continue
+            }
+
+            if (type == 'password') {
+                values[name] = initial
+                continue
+            }
+
+            if (type == 'select') {
+                if (!initial) {
+                    values[name] = undefined
+                    continue
+                }
+
+                let choices = getValue(question.choices, question, values) as prompts.Choice[] | undefined
+                if (!choices) {
+                    values[name] = []
+                    continue
+                }
+
+                values[name] = choices[initial as number]?.value ?? initial
+                continue
+            }
+
+            if (type == 'toggle') {
+                values[name] = initial ?? false
+                continue
+            }
+        }
+
+        return values
+    }
+
     function waitForKeypress() {
         return new Promise<void>(resolve => {
             process.stdin.setRawMode(true);
@@ -170,7 +260,7 @@ export namespace PromptsHelper {
         });
     }
 
-    function reprintAnswers<T extends string = string>(questions: PromptObject<T>[], answers: any) {
+    async function reprintAnswers<T extends string = string>(questions: PromptObject<T>[], answers: any) {
         for (const question of questions) {
             const name = getValue(question.name, question, answers)
             const type = getValue(question.type, question, answers)
@@ -308,7 +398,7 @@ export namespace PromptsHelper {
         }
     }
 
-    function recreate<T extends string>(question: prompts.PromptObject<T>, values: any) {
+    async function recreateQuestion<T extends string>(question: prompts.PromptObject<T>, values: any) {
         const recreated: PromptObject<T> = {} as any
 
         if (question.name) {
@@ -344,7 +434,7 @@ export namespace PromptsHelper {
         }
 
         if (question.initial) {
-            recreated.initial = getValue(question.initial, question, values)
+            recreated.initial = await getValueAsync(question.initial, question, values)
         }
 
         if (question.limit) {
@@ -396,8 +486,8 @@ export namespace PromptsHelper {
         }
 
         if (question.validate && process.platform !== 'win32') {
-            recreated.validate = (value) => {
-                return question.validate!(value, values, question)
+            recreated.validate = async (value) => {
+                return await question.validate!(value, values, question)
             }
         }
 
@@ -431,6 +521,18 @@ export namespace PromptsHelper {
         if (typeof valueOrFunc == 'function') {
             const func = valueOrFunc as Function
             return func(undefined, values, question) as TMain
+        }
+
+        return valueOrFunc as TMain
+    }
+
+    async function getValueAsync<TMain, TOthers>(valueOrFunc: TMain | TOthers, question: PromptObject, values: any) {
+        if (!valueOrFunc)
+            return undefined
+
+        if (typeof valueOrFunc == 'function') {
+            const func = valueOrFunc as Function
+            return await func(undefined, values, question) as TMain
         }
 
         return valueOrFunc as TMain

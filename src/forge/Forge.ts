@@ -18,7 +18,8 @@ export interface ExecutionArgs {
     program: Command
     targetDir: string
     rootDir: string
-    taskName: string
+    forgeId: string
+    taskId: string
 }
 
 export class Forge {
@@ -26,7 +27,8 @@ export class Forge {
     _eventEmitter: EventEmitter
     _fileInjector: IFileInjector
 
-    taskName: string = null!
+    id: string = null!
+    taskId: string = null!
     currentStage: ForgeStages
     paths: ForgePaths
     program: ForgeProgram
@@ -106,14 +108,15 @@ export class Forge {
         if (this.runner)
             return this.runner
 
-        this.taskName = executionArgs.taskName
+        this.id = executionArgs.forgeId
+        this.taskId = executionArgs.taskId
         this.program._command = executionArgs.program
         await this.program._configureCommands(executionArgs.program)
 
         this.paths._rootDir = executionArgs.rootDir
         this.paths._targetDir = executionArgs.targetDir
-        this.paths._sourceDir = join(executionArgs.rootDir, 'templates', executionArgs.taskName)
-        this.paths._scriptsDir = join(executionArgs.rootDir, 'scripts', executionArgs.taskName)
+        this.paths._sourceDir = join(executionArgs.rootDir, 'templates', executionArgs.taskId)
+        this.paths._scriptsDir = join(executionArgs.rootDir, 'scripts', executionArgs.taskId)
         this.paths._tempDir = TempDir.get("executions", crypto.randomUUID())
 
         this.memFs._tempFs = new TempFs(this.paths.tempPath(), this._fileInjector)

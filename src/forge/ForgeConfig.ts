@@ -1,44 +1,64 @@
-import fs from 'fs-extra'
-import { dirname, join } from 'path'
-import { Forge } from './Forge'
+import { dirname } from 'path'
 import { ConfigScope } from '../types'
-
-const ConfigFileName = 'config.hf.json'
+import { createConfig } from '../useCases/config/createConfig/createConfig'
+import { deleteConfig } from '../useCases/config/deleteConfig/deleteConfig'
+import { deleteConfigSync } from '../useCases/config/deleteConfigSync/deleteConfig'
+import { getConfigValues } from '../useCases/config/getConfigValues/getConfigValues'
+import { getConfigValuesSync } from '../useCases/config/getConfigValuesSync/getConfigValuesSync'
+import { getParentConfigs } from '../useCases/config/getParentConfigs/getParentConfigs'
+import { getParentConfigsSync } from '../useCases/config/getParentConfigsSync/getParentConfigsSync'
+import { setConfigValues } from '../useCases/config/setConfigValues/setConfigValues'
+import { setConfigValuesSync } from '../useCases/config/setConfigValuesSync/setConfigValuesSync'
+import { Forge } from './Forge'
 
 /**
  * Options for Config behavior.
  */
 export interface ForgeConfigOptions {
-    /** Whether the config should be automatically saved after changes. */
+    /** Whether the config should be automatically generated in the commit stage. */
     autoSave?: boolean
+    /** Whether to read and merge configs from parent directories */
+    recursiveValues?: boolean
+}
+
+interface ConfigValues {
+    [key: string]: any
+}
+
+interface TaskValues {
+    [taskId: string]: ConfigValues
+}
+
+interface TaskContext {
+    [forgeId: string]: TaskValues
+}
+
+interface ForgeContext {
+    [forgeId: string]: ConfigValues
 }
 
 /**
  * Shape of the configuration object stored in file and memory.
  */
-interface ConfigObject {
+export interface ConfigObject {
     /** Project configuration values shared across all tasks. */
-    project?: Record<string, any>
+    projectScope?: ConfigValues
     /** Task-specific configuration values, keyed by task name. */
-    tasks?: Record<string, Record<string, any>>
+    taskScope?: TaskContext
+    /** Forge-specific configuration values, keyed by task name. */
+    forgeScope?: ForgeContext
 }
 
 /**
  * Handles loading, saving, and manipulating project and task-specific configurations.
  */
 export class ForgeConfig {
-    private values?: ConfigObject = {
-        project: {},
-        tasks: {}
-    }
-
-    private pendingChanges: boolean = false
-
-    private configPath?: string
+    private configDirectory?: string
 
     /** Config behavior options. */
     _options: ForgeConfigOptions = {
-        autoSave: true,
+        autoSave: false,
+        recursiveValues: true
     }
 
     /**
@@ -54,11 +74,21 @@ export class ForgeConfig {
      * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
      * @returns A deep clone of the stored value, or undefined if not found.
      */
-    get(key: string, scope: ConfigScope = 'task') {
-        if (scope == 'task')
-            return structuredClone(this.values?.tasks?.[this.forge.taskName]?.[key])
+    async get<T = any>(key: string, scope?: ConfigScope) {
+        const values = await this.getValues(scope)
+        return values?.[key] as T | undefined
+    }
 
-        return structuredClone(this.values?.project?.[key])
+    /**
+     * Retrieve a task-specific configuration value for the current task.
+     * @param key Configuration key.
+     * @param scope The configuration scope to retrieve the key from. 
+     * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
+     * @returns A deep clone of the stored value, or undefined if not found.
+     */
+    getSync<T = any>(key: string, scope?: ConfigScope) {
+        const values = this.getValuesSync(scope)
+        return values?.[key] as T | undefined
     }
 
     /**
@@ -67,11 +97,30 @@ export class ForgeConfig {
      * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
      * @returns A deep clone of the task's config object, or undefined if not set.
      */
-    getValues(scope: ConfigScope = 'task') {
-        if (scope == 'task')
-            return structuredClone(this.values?.tasks?.[this.forge.taskName])
+    async getValues<T = any>(scope?: ConfigScope) {
+        return await getConfigValues({
+            directory: await this.getConfigDirectory(),
+            forgeId: this.forge.id,
+            taskId: this.forge.taskId,
+            scope: scope,
+            recursive: this._options.recursiveValues,
+        })
+    }
 
-        return structuredClone(this.values?.project)
+    /**
+     * Get all configuration values for the current task.
+     * @param scope The configuration scope to retrieve the key from. 
+     * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
+     * @returns A deep clone of the task's config object, or undefined if not set.
+     */
+    getValuesSync<T = any>(scope?: ConfigScope) {
+        return getConfigValuesSync<T>({
+            directory: this.getConfigDirectorySync(),
+            forgeId: this.forge.id,
+            taskId: this.forge.taskId,
+            scope: scope,
+            recursive: this._options.recursiveValues,
+        })
     }
 
     /**
@@ -81,20 +130,25 @@ export class ForgeConfig {
      * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
      * @param value The value to associate with the key.
      */
-    set(key: string, value: any, scope: ConfigScope = 'task') {
-        if (scope == 'task') {
-            this.pendingChanges = true
-            this.values ??= {}
-            this.values.tasks ??= {}
-            this.values.tasks[this.forge.taskName] ??= {}
-            this.values.tasks[this.forge.taskName][key] = structuredClone(value)
-            return
-        }
+    async set(key: string, value: any, scope: ConfigScope = 'task') {
+        await this.setValues(
+            { [key]: value },
+            scope
+        )
+    }
 
-        this.pendingChanges = true
-        this.values ??= {}
-        this.values.project ??= {}
-        this.values.project[key] = structuredClone(value)
+    /**
+     * Sets a task-specific configuration value for the current task.
+     * @param key The key to set.
+     * @param scope The configuration scope to retrieve the key from. 
+     * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
+     * @param value The value to associate with the key.
+     */
+    setSync(key: string, value: any, scope: ConfigScope = 'task') {
+        this.setValuesSync(
+            { [key]: value },
+            scope
+        )
     }
 
     /**
@@ -103,19 +157,46 @@ export class ForgeConfig {
      * @param scope The configuration scope to retrieve the key from. 
      * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
      */
-    setValues(values: any, scope: ConfigScope = 'task') {
-        if (scope == 'task') {
-            const entries = Object.entries(values)
-            for (const [key, value] of entries) {
-                this.set(key, value)
-            }
+    async setValues(values: any, scope: ConfigScope = 'task') {
+        const disableSaving =
+            this.forge.variables.get('disableSaving') ??
+            this.forge.program.options().disableSaving
+
+        if (disableSaving) {
             return
         }
 
-        const entries = Object.entries(values)
-        for (const [key, value] of entries) {
-            this.set(key, value, 'project')
+        await setConfigValues({
+            directory: await this.getConfigDirectory(),
+            scope: scope,
+            values: values,
+            forgeId: this.forge.id,
+            taskId: this.forge.taskId
+        })
+    }
+
+    /**
+     * Sets multiple task-specific configuration values for the current task.
+     * @param values An object containing key-value pairs to set.
+     * @param scope The configuration scope to retrieve the key from. 
+     * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
+     */
+    setValuesSync(values: any, scope: ConfigScope = 'task') {
+        const disableSaving =
+            this.forge.variables.get('disableSaving') ??
+            this.forge.program.options().disableSaving
+
+        if (disableSaving) {
+            return
         }
+
+        setConfigValuesSync({
+            directory: this.getConfigDirectorySync(),
+            scope: scope,
+            values: values,
+            forgeId: this.forge.id,
+            taskId: this.forge.taskId
+        })
     }
 
     /**
@@ -124,119 +205,110 @@ export class ForgeConfig {
      * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
      * @param key The key to delete.
      */
-    delete(key: string, scope: ConfigScope = 'task') {
-        if (scope == 'task') {
-            const obj = this.values?.tasks?.[this.forge.taskName]
-            if (!obj) {
-                return
-            }
+    async delete(key: string, scope: ConfigScope = 'task') {
+        const disableSaving =
+            this.forge.variables.get('disableSaving') ??
+            this.forge.program.options().disableSaving
 
-            if (!(key in obj)) {
-                return
-            }
-
-            this.pendingChanges = true
-            delete obj[key]
+        if (disableSaving) {
             return
         }
 
-        const obj = this.values?.project
-        if (!obj) {
-            return
-        }
-
-        if (!(key in obj)) {
-            return
-        }
-
-        this.pendingChanges = true
-        delete obj[key]
+        await deleteConfig({
+            directory: await this.getConfigDirectory(),
+            key: key,
+            scope: scope,
+            forgeId: this.forge.id,
+            taskId: this.forge.taskId
+        })
     }
 
     /**
-     * Checks whether there are unsaved changes in the config.
-     * @returns True if there are pending changes, false otherwise.
+     * Deletes a task-specific configuration value for the current task.
+     * @param scope The configuration scope to retrieve the key from. 
+     * Can be `'task'` for task-specific settings or `'project'` for project-wide settings.
+     * @param key The key to delete.
      */
-    hasPendingChanges() {
-        return this.pendingChanges
+    deleteSync(key: string, scope: ConfigScope = 'task') {
+        const disableSaving =
+            this.forge.variables.get('disableSaving') ??
+            this.forge.program.options().disableSaving
+
+        if (disableSaving) {
+            return
+        }
+
+        deleteConfigSync({
+            directory: this.getConfigDirectorySync(),
+            key: key,
+            scope: scope,
+            forgeId: this.forge.id,
+            taskId: this.forge.taskId
+        })
     }
 
     /**
      * Gets the path to the current config file, if loaded or saved.
      * @returns The absolute path to the config file, or undefined if not set.
      */
-    getConfigPath() {
-        return this.configPath
+    async getConfigDirectory() {
+        if (this.configDirectory)
+            return this.configDirectory
+
+        const targetDir = this.forge.paths.targetPath()
+        const paths = await getParentConfigs(targetDir)
+        if (paths.length == 0) {
+            return targetDir
+        }
+
+        const lastPath = paths[paths.length - 1]
+        return dirname(lastPath)
     }
 
     /**
-     * Creates a new empty config instance linked to the same Forge instance.
-     * @returns A new ForgeConfig object.
+     * Gets the path to the current config file, if loaded or saved.
+     * @returns The absolute path to the config file, or undefined if not set.
      */
-    newConfig() {
-        return new ForgeConfig(this.forge)
+    getConfigDirectorySync() {
+        if (this.configDirectory)
+            return this.configDirectory
+
+        const targetDir = this.forge.paths.targetPath()
+        const paths = getParentConfigsSync(targetDir)
+        if (paths.length == 0) {
+            return targetDir
+        }
+
+        const lastPath = paths[paths.length - 1]
+        return dirname(lastPath)
+    }
+
+    setConfigDirectory(directory: string) {
+        this.configDirectory = this.forge.paths.targetPath(directory)
     }
 
     /**
-     * Saves the current config state to disk.
-     * If the config path is not yet set, it will be set to the forge's targetPath.
-     */
-    async save() {
-        this.pendingChanges = false
-        this.configPath ??= this.forge.paths.targetPath(ConfigFileName)
-
-        const dir = dirname(this.configPath)
-
-        await fs.ensureDir(dir)
-        await fs.writeJSON(this.configPath, this.values, {
-            spaces: 2
-        })
-    }
-
-    /**
-     * Loads configuration from disk by searching for the config file in the given directory or one of its parent directories.
+     * Checks if there is an existing config file for target path.
      * 
      * @param directory Optional directory to start the search from. Defaults to the Forge target path.
      * @returns True if a config file was found and loaded, false otherwise.
      */
-    async load(directory?: string) {
-        const targetDir = directory ?
-            this.forge.paths.targetPath(directory) :
-            this.forge.paths.targetPath()
-
-        if (!await fs.exists(targetDir)) {
-            return false
-        }
-
-        const filePath = await this.getConfigPathInternal(targetDir)
-        if (!filePath) {
-            return false
-        }
-
-        this.values = await fs.readJSON(filePath)
-        this.configPath = filePath
-
-        return true
+    async configExists() {
+        const targetDir = this.forge.paths.targetPath()
+        const paths = await getParentConfigs(targetDir)
+        return paths.length > 0
     }
 
-    /**
-     * Recursively searches for the config file starting from the given directory
-     * and moving up the directory tree until found or the root is reached.
-     * 
-     * @param directory The directory to start the search from.
-     * @returns The full path to the config file if found, otherwise undefined.
-     */
-    private async getConfigPathInternal(directory: string): Promise<string | undefined> {
-        const filePath = join(directory, ConfigFileName)
+    async save() {
+        const disableSaving =
+            this.forge.variables.get('disableSaving') ??
+            this.forge.program.options().disableSaving
 
-        if (await fs.exists(filePath))
-            return filePath
+        if (disableSaving) {
+            return
+        }
 
-        const parent = dirname(directory)
-
-        if (parent == directory)
-            return undefined
-
-        return await this.getConfigPathInternal(parent)
+        const dir = await this.getConfigDirectory()
+        await createConfig(dir)
     }
 }

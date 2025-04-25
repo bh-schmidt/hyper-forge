@@ -18,12 +18,8 @@ export class ForgeVariables {
     }
 
     private getVariables() {
-        const project = this._options.mergeConfigValues ?
-            this.forge.config.getValues('project') :
-            undefined
-
-        const local = this._options.mergeConfigValues ?
-            this.forge.config.getValues() :
+        const config = this._options.mergeConfigValues ?
+            this.forge.config.getValuesSync() :
             undefined
 
         const options = this._options.mergeProgramOptions ?
@@ -31,8 +27,7 @@ export class ForgeVariables {
             undefined
 
         return {
-            ...project,
-            ...local,
+            ...config,
             ...options,
             ...this.variables
         }

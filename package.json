@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc && tsc-alias",
     "watch": "nodemon --watch src --ext * --exec npm run build",
-    "pack": "rm -rf dist && npm install && npm run build && npm pack"
+    "pack": "rm -rf dist && npm install && npm run build && npm pack",
+    "publish": "rm -rf dist && npm install && npm run build && npm publish"
   },
   "files": [
     "dist/**/*.js",
