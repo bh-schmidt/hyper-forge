@@ -125,8 +125,12 @@ export class ForgeFs implements IForgeFs {
 
         if (!fileExists || writeOptions?.ifFileExists == 'replace') {
             if (await this.forge._fileInjector.shouldInject(sourcePath, targetPath, variables)) {
-                await this.forge._fileInjector.inject(sourcePath, targetPath, variables)
-                return
+                try {
+                    await this.forge._fileInjector.inject(sourcePath, targetPath, variables)
+                    return
+                } catch (error) {
+                    throw new Error(`Error injecting '${sourcePath}'`, { cause: error })
+                }
             }
 
             await this.copyFile(sourcePath, targetPath)

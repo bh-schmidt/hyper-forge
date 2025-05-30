@@ -6,9 +6,10 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc && tsc-alias",
+    "rebuild": "rm -rf dist && npm install && npm run build",
     "watch": "nodemon --watch src --ext * --exec npm run build",
-    "pack": "rm -rf dist && npm install && npm run build && npm pack",
-    "publish": "rm -rf dist && npm install && npm run build && npm publish"
+    "prepack": "npm run rebuild",
+    "prepublishOnly": "npm run rebuild"
   },
   "files": [
     "dist/**/*.js",

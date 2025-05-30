@@ -261,8 +261,12 @@ export class TempFs {
         await this.setTempFile(temp)
 
         if (await this.injector.shouldInject(src, temp.tempPath!, variables)) {
-            await this.injector.inject(src, temp.tempPath!, variables)
-            return
+            try {
+                await this.injector.inject(src, temp.tempPath!, variables)
+                return
+            } catch (error) {
+                throw new Error(`Error injecting '${src}'`, { cause: error })
+            }
         }
 
         await fs.copyFile(src, temp.tempPath!)
