@@ -1,29 +1,31 @@
-import { AutoCompleteMatcher } from "./common/AutoCompleteMatcher";
-import { TempDir } from "./common/TempDir";
-import { HyperForgeData } from "./common/HyperForgeData";
-import { createForge, Forge } from "./forge/Forge";
-import { ForgeRunner } from "./ForgeRunner";
-import { IFileInjector, LiquidInjector } from "./Injectors/LiquidInjector";
-import { PromptsHelper } from "./common/PromptsHelper";
-import { GlobHelper } from "./common/GlobHelper";
-import { ConfigHandler } from "./handlers/ConfigHandler";
-import { ConfigHandlerSync } from "./handlers/ConfigHandlerSync";
+import { ForgeComposer } from "./ForgeComposer";
 
-const tempDir = TempDir.get()
-const executionsTempDir = TempDir.get("executions")
+import { createForge } from "@/forges/ForgeBuilder";
+import * as FileInjectors from './file-injectors/Index';
+import * as Forges from './forges/Index';
+import { VariableMapper } from "./forges/Index";
+import * as NameInjectors from './name-injectors/Index';
+import * as Types from './Types';
+import * as Utils from './utils/Index';
+
+export * from './Types';
 
 export {
+    createForge, FileInjectors, ForgeComposer, Forges,
+    NameInjectors,
+    Utils, VariableMapper
+};
+
+const hyperForge = {
     createForge,
-    Forge,
-    AutoCompleteMatcher,
-    IFileInjector,
-    LiquidInjector,
-    ForgeRunner,
-    HyperForgeData,
-    PromptsHelper,
-    GlobHelper,
-    ConfigHandler,
-    ConfigHandlerSync,
-    tempDir,
-    executionsTempDir
+    ForgeComposer,
+    VariableMapper,
+    FileInjectors,
+    Forges,
+    NameInjectors,
+    Utils,
+    ...Types
 }
+
+export default hyperForge
+
